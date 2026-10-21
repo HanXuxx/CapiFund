@@ -20,6 +20,16 @@
 - 修改接口、协议或行为时，在同一变更中同步更新 `protocols/`、`SKILL.md` 和 `docs/`。
 - 未经用户明确要求，不 commit、不 push、不改变暂存状态。
 
+## 部署
+
+本机运行实例不会自动加载新代码。CapiFund 或 `vendor/CapiFinMCP` 的每次改动通过验证后，都要重新部署受影响的实例并做冒烟检查，不让运行中的服务停留在旧代码：
+
+- CapiFund 服务 `capifund.service`：按[运维说明](docs/operations.md#内网部署)备份、停服、删除 `build/` 后 `pip install .`、有迁移或协议文本变化时执行 `migrate-database --apply`，再启动。
+- CapiFinMCP HTTP 服务 `capifin-mcp.service`：在 `vendor/CapiFinMCP` 执行 `scripts/deploy_server.py`，步骤见 [server.md](vendor/CapiFinMCP/docs/server.md#更新与回退)。
+- `company_research` 的 Scheduler、Maintainer 和 Monitor：它们从 `vendor/CapiFinMCP/.venv` 的 editable 安装运行。新 Run 启动的 stdio MCP 直接读取工作树代码，长驻进程本身要重启才会加载新代码。Run 读取运行空间 `/data1/capi_fin_agent/mcp-company-research/assets/`，包内资产改动后还要同步到运行空间。步骤见 [company-research.md](vendor/CapiFinMCP/docs/company-research.md#本机运行与更新)。
+
+只部署受改动影响的实例：只改 CapiFund 时不重启 CapiFinMCP 的服务，反之亦然。只改 `docs/` 或测试时不需要部署；`SKILL.md`、协议文本，以及 CapiFinMCP `server/` 包内的资产和 Skill 随安装包发布，改动后同样要部署。部署结果和冒烟检查写进交付说明。
+
 ## 验证
 
 - `.venv/bin/python -m pytest -q`

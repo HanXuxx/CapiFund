@@ -86,7 +86,7 @@ sudo ufw allow from 10.8.0.0/24 to any port 8794 proto tcp comment 'CapiFund VPN
 
 服务器防火墙只对内网 `192.168.0.0/24` 和 VPN `10.8.0.0/24` 放行 8794。网页不需要 token，这两个网段内的任何人都能浏览库内容。
 
-更新时停止服务，在 checkout 中重新执行 `pip install .`，有迁移时执行 `migrate-database --apply`，再启动服务。冒烟检查只做只读操作：不带 token 访问 `/mcp` 应返回 `401`；解压正式接入包，执行 `set -a; . ./client.env; set +a` 后运行 `python client.py doctor --mcp`。跨机访问需在实际内网或 VPN 客户端上验证。
+每次改动通过验证后都要更新部署：先用 `capifund-admin backup <目录>` 做在线备份，停止服务，在 checkout 中执行 `rm -rf build` 后重新执行 `pip install .`，有迁移或协议文本变化时执行 `migrate-database --apply`，再启动服务。setuptools 会复用 `build/`，不删除时源码中已删除的文件仍会被装进部署副本。部署副本不是 editable 安装，不重装时 `migrate-database` 仍按旧发行包刷新协议快照。冒烟检查只做只读操作：不带 token 访问 `/mcp` 应返回 `401`；解压正式接入包，执行 `set -a; . ./client.env; set +a` 后运行 `python client.py doctor --mcp`。跨机访问需在实际内网或 VPN 客户端上验证。
 
 ## 端到端验收
 

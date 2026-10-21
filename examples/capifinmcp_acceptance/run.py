@@ -32,6 +32,14 @@ REMOVED_TOOLS = frozenset({
     "gts_local_a_share_announcement_document", "gts_api_private", "tl_meeting_minutes_get", "tl_meeting_minutes_document",
     "submit_company_research", "get_company_research_status", "cancel_company_research",
 })
+# download_source_file 的五种来源，以及验收保存的文件名和内容类型。
+DOWNLOAD_FILES = {
+    "tl_research_report": ("research_report.pdf", "pdf"),
+    "gts_a_share_announcement": ("announcement.pdf", "pdf"),
+    "tl_meeting_transcript": ("meeting_transcript.txt", "text"),
+    "tl_meeting_summary": ("meeting_summary.txt", "text"),
+    "company_research": ("company_research.md", "text"),
+}
 AUTHOR = {"id": "capifinmcp-acceptance", "type": "agent", "runtime": "capifund-example", "name": "CapiFinMCP 验收进程"}
 
 
@@ -60,6 +68,15 @@ def outcome(result: dict) -> str:
     if meta.get("query_status") != "success":
         return f"failed:{meta.get('query_status')}"
     return "no_rows" if meta.get("data_status") == "no_rows" else "rows"
+
+
+def check_file(path: Path, kind: str) -> None:
+    """PDF 必须以 %PDF- 开头；TXT 和 Markdown 必须是非空 UTF-8。"""
+    content = path.read_bytes()
+    if kind == "pdf" and not content.startswith(b"%PDF-"):
+        raise AssertionError(f"{path.name} is not a PDF")
+    if kind == "text" and not content.decode("utf-8").strip():
+        raise AssertionError(f"{path.name} is empty")
 
 
 def new_run_dir(config: dict, suffix: str = "") -> Path:
@@ -246,13 +263,10 @@ class Acceptance:
         self.downloads(state)
         self.check("A", "tool_coverage", self.tool_coverage)
 
-    def download(self, source: str, document_ref: dict, filename: str, kind: str) -> str:
+    def download(self, source: str, document_ref: dict) -> str:
+        filename, kind = DOWNLOAD_FILES[source]
         saved = self.client.download_file(source, document_ref, self.run_dir / "downloads" / filename)
-        content = Path(saved["path"]).read_bytes()
-        if kind == "pdf" and not content.startswith(b"%PDF-"):
-            raise AssertionError(f"{filename} is not a PDF")
-        if kind == "text" and not content.decode("utf-8").strip():
-            raise AssertionError(f"{filename} is empty")
+        check_file(Path(saved["path"]), kind)
         self.covered.add("download_source_file")
         self.queries[f"download_{source}"] = {"tool": "download_source_file", "arguments": {"source": source, "document_ref": document_ref},
                                               "summary": f"{saved['size_bytes']} bytes {saved['media_type']}", "outcome": "rows"}
@@ -261,23 +275,21 @@ class Acceptance:
     def downloads(self, state: dict) -> None:
         def report():
             reports = self.results["research_digests"]["data"]["reports"]
-            return self.download("tl_research_report", reports[0]["report_ref"], "research_report.pdf", "pdf")
+            return self.download("tl_research_report", reports[0]["report_ref"])
 
         def announcement():
             sources = self.results["a_share_announcements"]["data"]["sources"]
             row = next(source for source in sources if source["dataset"] == "ashareann_info")["result"]["rows"][0]
-            return self.download("gts_a_share_announcement",
-                                 {"record_id": row["id"], "ann_id": str(row["ann_id"]), "title": row["ann_title"]}, "announcement.pdf", "pdf")
+            return self.download("gts_a_share_announcement", {"record_id": row["id"], "ann_id": str(row["ann_id"]), "title": row["ann_title"]})
 
         def mom_id():
             return {"mom_id": str(self.results["minutes_list"]["data"]["items"][0]["mom_id"])}
 
         self.check("A", "download_research_report", report)
         self.check("A", "download_announcement", announcement)
-        self.check("A", "download_meeting_transcript", lambda: self.download("tl_meeting_transcript", mom_id(), "meeting_transcript.txt", "text"))
-        self.check("A", "download_meeting_summary", lambda: self.download("tl_meeting_summary", mom_id(), "meeting_summary.txt", "text"))
-        self.check("A", "download_company_research", lambda: self.download(
-            "company_research", state["material"], "company_research.md", "text"))
+        self.check("A", "download_meeting_transcript", lambda: self.download("tl_meeting_transcript", mom_id()))
+        self.check("A", "download_meeting_summary", lambda: self.download("tl_meeting_summary", mom_id()))
+        self.check("A", "download_company_research", lambda: self.download("company_research", state["material"]))
 
     # 阶段 B：CapiFund
 

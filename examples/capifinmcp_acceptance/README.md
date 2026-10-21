@@ -38,9 +38,17 @@ cd CapiFund
 
 `codex_config.yaml.example` 指向正式 Pipeline 的 Monitor 状态目录和账号登录目录，默认使用 `niuh` 账号、`gpt-6.1-sol` 和 `medium`。选号规则与 Pipeline 相同：账号必须 active、已登录、额度快照不超过 `settings.json` 中 `codex.refresh_seconds` 的三倍，且每个额度窗口的剩余百分比高于该账号阈值。`account: null` 时按 priority、id 选第一个可调度账号。进程只读取注册表和额度快照，不修改账号，也不占用 Pipeline 容量槽。
 
-Codex 以 `codex exec --ignore-user-config` 运行：仍用账号目录的登录凭据，但不加载账号自带的 MCP 配置，只挂载 CapiFinMCP 的 HTTP 服务，并在 Codex 侧禁用 `gts_api_*`。sandbox 为只读。Prompt 要求 Agent 按 resolve、discover、query 的顺序调用每个可见工具，下载只取一份会议纪要摘要 TXT。
+Codex 以 `codex exec --ignore-user-config` 运行：仍用账号目录的登录凭据，但不加载账号自带的 MCP 配置，只挂载 CapiFinMCP 的 HTTP 服务，并在 Codex 侧禁用 `gts_api_*`。Prompt 要求 Agent 按 resolve、discover、query 的顺序调用每个可见工具；MCP 工具 `download_source_file` 只取一份会议纪要摘要 TXT。
 
-判定依据是 `events.jsonl` 中实际完成的 MCP 调用：每个可见工具至少有一次调用的 `metadata.query_status=success`，且 Agent 没有调用可见范围以外的工具。Codex 内置的 MCP 资源列举（如 `list_mcp_resources`）不计入；CapiFinMCP 不提供 resources，这类调用返回 Method not found 属于预期。每次运行会消耗所选账号的 Codex 额度。
+Agent 还要从查询结果中取得 `document_ref`，用 CapiFund venv 中的 `capifin-mcp download-file` 把五种来源各下载一份到 `agent/downloads/`。为此 sandbox 使用 `workspace-write`：Agent 只能写本次 `agent/` 目录，可以访问网络；shell 只继承 `PATH`、`HOME`、`LANG`、`LC_*` 和 `CAPIFIN_MCP_TOKEN`。客户端配置 `agent/client.yaml` 只记录服务地址和 token 环境变量名。
+
+判定依据如下：
+
+- `events.jsonl` 中实际完成的 MCP 调用：每个可见工具至少有一次调用的 `metadata.query_status=success`，且 Agent 没有调用可见范围以外的工具。Codex 内置的 MCP 资源列举（如 `list_mcp_resources`）不计入；CapiFinMCP 不提供 resources，这类调用返回 Method not found 属于预期。
+- `agent/downloads/` 中五个文件按 `run.py` 的同一规则检查内容。
+- `agent/` 下所有文件都不包含 token。
+
+每次运行会消耗所选账号的 Codex 额度。
 
 ## 输出
 
@@ -48,6 +56,6 @@ Codex 以 `codex exec --ignore-user-config` 运行：仍用账号目录的登录
 
 - `report.md`、`report.json`：逐项检查结果、耗时，以及每次调用的参数和结果。
 - `run.py`：`downloads/` 保存下载文件；`capifund/`、`capifund-server.log` 是测试用 CapiFund 的数据目录和服务日志。
-- `agent_e2e.py`：`agent/` 保存 Prompt、输出 schema、Codex 事件流、stderr 和最终回复 `final.json`。
+- `agent_e2e.py`：`agent/` 保存 Prompt、输出 schema、客户端配置、Codex 事件流、stderr 和最终回复 `final.json`；`agent/downloads/` 保存 Agent 下载的文件。
 
 任何检查失败时，进程以非零状态退出。默认输出根目录是 `/data1/capi_fin_agent/tests/capifinmcp-acceptance`，不要改到仓库或 `/tmp` 中。

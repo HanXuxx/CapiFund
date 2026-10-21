@@ -149,8 +149,9 @@ def test_query_filters_by_custom_keyword_and_tag(write, api):
 
 def test_agenda_lists_due_checkpoints_and_theses_with_new_evidence(write, api):
     topic = write("create", metadata={"type": "thesis", "title": "跟踪中", "custom": {"thesis_status": "active"}}, body="x")
+    unmonitored = write("create", metadata={"type": "thesis", "title": "悬空逻辑", "custom": {"thesis_status": "active"}}, body="x")
     due = reply(write, topic, {"kind": "checkpoint", "due_date": "2026-10-20"}, "已到期")
-    reply(write, topic, {"kind": "checkpoint", "due_date": "2026-11-30"}, "未到期")
+    future_cp = reply(write, topic, {"kind": "checkpoint", "due_date": "2026-11-30"}, "未到期")
     closed = write("create", metadata={"type": "thesis", "title": "已关闭",
                                        "custom": {"thesis_status": "draft"}}, body="x")
     reply(write, closed, {"kind": "checkpoint", "due_date": "2026-10-01"})
@@ -162,14 +163,36 @@ def test_agenda_lists_due_checkpoints_and_theses_with_new_evidence(write, api):
     assert agenda["due_checkpoints"]["items"][0]["thesis"]["title"] == "跟踪中"
     assert api.call("agenda", {"as_of": "2026-10-21", "within_days": 60})["due_checkpoints"]["total"] == 2
     assert agenda["theses_with_new_evidence"]["total"] == 0
+    assert [item["metadata"]["id"] for item in agenda["theses_without_pending_checkpoints"]["items"]] == [unmonitored["metadata"]["id"]]
 
-    reply(write, topic, {"kind": "evidence", "stance": "against"})
+    ev1 = reply(write, topic, {"kind": "evidence", "stance": "against"})
     reply(write, topic, {"kind": "evidence", "stance": "support"})
     pending = api.call("agenda", {"as_of": "2026-10-21"})["theses_with_new_evidence"]
     assert pending["total"] == 1 and pending["items"][0]["new_evidence"] == 2
     # 复核后更新逻辑主帖，离开待复核清单。
     write("update", record_id=topic["metadata"]["id"], expected_revision=1, metadata={}, body="复核：维持判断")
     assert api.call("agenda", {"as_of": "2026-10-21"})["theses_with_new_evidence"]["total"] == 0
+
+    # 修改已有 evidence（如 stance 反转）也会再次触发复核。
+    write("update", record_id=ev1["metadata"]["id"], expected_revision=1,
+          metadata={"custom": {"kind": "evidence", "stance": "support"}}, body="修正证据口径")
+    assert api.call("agenda", {"as_of": "2026-10-21"})["theses_with_new_evidence"]["total"] == 1
+    write("update", record_id=topic["metadata"]["id"], expected_revision=2, metadata={}, body="二次复核")
+    assert api.call("agenda", {"as_of": "2026-10-21"})["theses_with_new_evidence"]["total"] == 0
+
+    # 验证节点被判定为终态（如 refuted）时，同样触发所属 active 逻辑进入待复核清单。
+    write("update", record_id=due["metadata"]["id"], expected_revision=1,
+          metadata={"custom": {"kind": "checkpoint", "status": "refuted", "due_date": "2026-10-20"}}, body="未达阈值")
+    after_cp = api.call("agenda", {"as_of": "2026-10-21"})
+    assert after_cp["theses_with_new_evidence"]["total"] == 1
+    assert after_cp["theses_with_new_evidence"]["items"][0]["metadata"]["id"] == topic["metadata"]["id"]
+
+    # 当最后一个 pending checkpoint 也被判定为终态且逻辑仍为 active 时，该逻辑同时进入 theses_without_pending_checkpoints。
+    write("update", record_id=future_cp["metadata"]["id"], expected_revision=1,
+          metadata={"custom": {"kind": "checkpoint", "status": "confirmed", "due_date": "2026-11-30"}}, body="提前确认")
+    no_pending_ids = {item["metadata"]["id"] for item in api.call("agenda", {"as_of": "2026-10-21"})["theses_without_pending_checkpoints"]["items"]}
+    assert no_pending_ids == {topic["metadata"]["id"], unmonitored["metadata"]["id"]}
+
     with pytest.raises(RecordError):
         api.call("agenda", {"as_of": "2026/10/21"})
 

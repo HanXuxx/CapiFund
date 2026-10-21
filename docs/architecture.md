@@ -25,7 +25,7 @@ CapiFund 把投研拆成两层。资料层负责数据库和外部资料的读�
 | 证据 | 该主题的回复，`custom.kind=evidence`，带 `stance` |
 | 想法、资料、结论、反馈 | 独立主帖 `idea`、`source`、`conclusion`、`feedback`，通过 `reference` 关联 |
 
-楼层顺序就是逻辑的时间线，每条 record 的修订历史保留每次判断的原文。`fund_agenda` 根据保留键计算两张待办清单：到期的验证节点，以及有新证据待复核的逻辑。Agent 每次工作都从待办开始。
+楼层顺序就是逻辑的时间线，每条 record 的修订历史保留每次判断的原文。`fund_agenda` 根据保留键计算三张待办清单：到期的验证节点（`due_checkpoints`）、有新增／修改证据或新判定节点待复核的逻辑（`theses_with_new_evidence`），以及处于 `active` 状态但缺少 `pending` 验证节点的逻辑（`theses_without_pending_checkpoints`）。Agent 每次工作都从待办开始。
 
 ## 进程与存储
 

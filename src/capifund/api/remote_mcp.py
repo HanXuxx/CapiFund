@@ -97,7 +97,7 @@ def create_mcp(gateway: BusinessAPI, public_origin: str, run=run_in_threadpool) 
 
     @mcp.strict_tool()
     async def fund_agenda(as_of: str | None = None, within_days: int = 0) -> dict[str, Any]:
-        """返回两张待办清单：due_date 不晚于 as_of+within_days 的 pending 验证节点（所属逻辑未关闭），以及有晚于逻辑最近更新的新证据的 active 逻辑。as_of 为 YYYY-MM-DD，默认 Asia/Shanghai 当天。"""
+        """返回三张待办清单：due_checkpoints（due_date 不晚于 as_of+within_days 的 pending 验证节点，所属逻辑未关闭）、theses_with_new_evidence（存在晚于逻辑最近更新的新增/修改 evidence 或已判定 checkpoint 的 active 逻辑）、theses_without_pending_checkpoints（没有任何 pending 验证节点的 active 逻辑）。as_of 为 YYYY-MM-DD，默认 Asia/Shanghai 当天。"""
         return await call("agenda", locals())
 
     @mcp.strict_tool()

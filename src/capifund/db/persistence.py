@@ -144,13 +144,30 @@ class SQLiteSession:
         source = """ FROM records t JOIN record_revisions tv ON tv.record_id=t.id AND tv.revision=t.current_revision
             JOIN records r ON r.topic_id=t.id """ + CURRENT + """
             WHERE t.type='thesis' AND json_extract(tv.metadata,'$.custom.thesis_status')='active'
-              AND json_extract(v.metadata,'$.custom.kind')='evidence' AND r.created_at>t.updated_at"""
+              AND r.updated_at>t.updated_at
+              AND (json_extract(v.metadata,'$.custom.kind')='evidence'
+                   OR (json_extract(v.metadata,'$.custom.kind')='checkpoint'
+                       AND json_extract(v.metadata,'$.custom.status') IN ('confirmed','refuted','expired')))"""
         total = self._connection.execute("SELECT COUNT(DISTINCT t.id)" + source).fetchone()[0]
         rows = self._connection.execute("SELECT tv.metadata,t.current_revision AS revision,COUNT(*) AS new_evidence,"
-                                        "MAX(r.created_at) AS latest_evidence_at" + source
+                                        "MAX(r.updated_at) AS latest_evidence_at" + source
                                         + " GROUP BY t.id ORDER BY latest_evidence_at DESC LIMIT ?", (limit,))
         return {"items": [{"metadata": json.loads(row["metadata"]), "revision": row["revision"], "new_evidence": row["new_evidence"],
                            "latest_evidence_at": row["latest_evidence_at"]} for row in rows], "total": total}
+
+    def theses_without_pending_checkpoints(self, limit):
+        source = """ FROM records t JOIN record_revisions tv ON tv.record_id=t.id AND tv.revision=t.current_revision
+            WHERE t.type='thesis' AND json_extract(tv.metadata,'$.custom.thesis_status')='active'
+              AND NOT EXISTS (
+                  SELECT 1 FROM records c JOIN record_revisions cv ON cv.record_id=c.id AND cv.revision=c.current_revision
+                  WHERE c.topic_id=t.id AND c.type='comment'
+                    AND json_extract(cv.metadata,'$.custom.kind')='checkpoint'
+                    AND json_extract(cv.metadata,'$.custom.status')='pending'
+              )"""
+        total = self._connection.execute("SELECT COUNT(*)" + source).fetchone()[0]
+        rows = self._connection.execute("SELECT tv.metadata,t.current_revision AS revision" + source
+                                        + " ORDER BY t.updated_at DESC,t.rowid DESC LIMIT ?", (limit,))
+        return {"items": [{"metadata": json.loads(row["metadata"]), "revision": row["revision"]} for row in rows], "total": total}
 
 
 class SQLiteFundStorage:

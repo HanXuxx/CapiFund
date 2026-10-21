@@ -161,7 +161,8 @@ class RecordService:
         with self._storage.transaction() as session:
             return {"as_of": as_of, "cutoff": cutoff, "limit": AGENDA_LIMIT,
                     "due_checkpoints": session.due_checkpoints(cutoff, AGENDA_LIMIT),
-                    "theses_with_new_evidence": session.theses_with_new_evidence(AGENDA_LIMIT)}
+                    "theses_with_new_evidence": session.theses_with_new_evidence(AGENDA_LIMIT),
+                    "theses_without_pending_checkpoints": session.theses_without_pending_checkpoints(AGENDA_LIMIT)}
 
     @staticmethod
     def _page(page, page_size):

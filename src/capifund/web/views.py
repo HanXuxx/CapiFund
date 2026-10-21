@@ -156,10 +156,14 @@ class WebEndpoints:
             for item in result["due_checkpoints"]["items"]) or "<li>暂无</li>"
         review = "".join(
             f'<li><a href="/records/{escape(item["metadata"]["id"])}">{escape(item["metadata"]["title"])}</a> '
-            f'{badges(item["metadata"])}<p class="byline">新证据 {item["new_evidence"]} 条，最近 '
+            f'{badges(item["metadata"])}<p class="byline">新变动 {item["new_evidence"]} 条，最近 '
             f'{escape(item["latest_evidence_at"][:16].replace("T", " "))}</p></li>'
             for item in result["theses_with_new_evidence"]["items"]) or "<li>暂无</li>"
+        unmonitored = "".join(
+            record_row(item) for item in result["theses_without_pending_checkpoints"]["items"]) or "<li>暂无</li>"
         return layout("待办", f'<h1>待办（截至 {escape(result["cutoff"])}）</h1>'
                              f'<h2>到期验证节点（{result["due_checkpoints"]["total"]}）</h2><ul class="records">{due}</ul>'
-                             f'<h2>有新证据待复核的逻辑（{result["theses_with_new_evidence"]["total"]}）</h2>'
-                             f'<ul class="records">{review}</ul>')
+                             f'<h2>有新证据或已判定节点待复核的逻辑（{result["theses_with_new_evidence"]["total"]}）</h2>'
+                             f'<ul class="records">{review}</ul>'
+                             f'<h2>缺少待验证节点的跟踪中逻辑（{result["theses_without_pending_checkpoints"]["total"]}）</h2>'
+                             f'<ul class="records">{unmonitored}</ul>')

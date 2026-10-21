@@ -1,11 +1,12 @@
 # CapiFinMCP 端口验收示例
 
-本目录有两个独立进程，都通过 HTTP 端口调用正在运行的 CapiFinMCP 服务，不替代任一仓库的单元测试：
+本目录的进程都通过 HTTP 端口调用正在运行的 CapiFinMCP 服务，不替代任一仓库的单元测试：
 
 - `run.py`：逐个调用 CapiFinMCP 的远程工具，再把取到的资料作为证据写入一个临时启动的 CapiFund 实例。不消耗 Codex 额度。
 - `agent_e2e.py`：从正式 Agent Pipeline 的 Codex 账号池选用一个账号，让 Codex Agent 自己调用 CapiFinMCP 的全部可见工具，用事件流核对实际调用。
+- `bundle_test.py`：解压并安装 CapiFinMCP 的客户端 zip，再用解压包中的客户端、服务地址和 token 运行上面两项验收。
 
-两者都不调用 `gts_api_*`（会消耗 Gangtise 外部额度）。
+都不调用 `gts_api_*`（会消耗 Gangtise 外部额度）。
 
 ## 开箱运行
 
@@ -40,7 +41,7 @@ cd CapiFund
 
 Codex 以 `codex exec --ignore-user-config` 运行：仍用账号目录的登录凭据，但不加载账号自带的 MCP 配置，只挂载 CapiFinMCP 的 HTTP 服务，并在 Codex 侧禁用 `gts_api_*`。Prompt 要求 Agent 按 resolve、discover、query 的顺序调用每个可见工具；MCP 工具 `download_source_file` 只取一份会议纪要摘要 TXT。
 
-Agent 还要从查询结果中取得 `document_ref`，用 CapiFund venv 中的 `capifin-mcp download-file` 把五种来源各下载一份到 `agent/downloads/`。为此 sandbox 使用 `workspace-write`：Agent 只能写本次 `agent/` 目录，可以访问网络；shell 只继承 `PATH`、`HOME`、`LANG`、`LC_*` 和 `CAPIFIN_MCP_TOKEN`。客户端配置 `agent/client.yaml` 只记录服务地址和 token 环境变量名。
+Agent 还要从查询结果中取得 `document_ref`，用 `capifin-mcp download-file`（默认取 CapiFund venv 中的命令，`--client-cli` 可指定其他安装） 把五种来源各下载一份到 `agent/downloads/`。为此 sandbox 使用 `workspace-write`：Agent 只能写本次 `agent/` 目录，可以访问网络；shell 只继承 `PATH`、`HOME`、`LANG`、`LC_*` 和 `CAPIFIN_MCP_TOKEN`。客户端配置 `agent/client.yaml` 只记录服务地址和 token 环境变量名。
 
 判定依据如下：
 
@@ -50,9 +51,24 @@ Agent 还要从查询结果中取得 `document_ref`，用 CapiFund venv 中的 `
 
 每次运行会消耗所选账号的 Codex 额度。
 
+## `bundle_test.py` 测试内容
+
+先在 CapiFinMCP 中按其 `docs/internal-client.md` 构建 `dist/capi_fin_mcp_client_<版本>.zip`，`--bundle` 默认指向 `vendor/CapiFinMCP/dist/capi_fin_mcp_client_1_0_0.zip`：
+
+```bash
+.venv/bin/python examples/capifinmcp_acceptance/bundle_test.py
+```
+
+1. 清空本目录下的 `client_bundle/` 并解压安装包。该目录含共享 token，已被 gitignore。
+2. 以 `HOME=client_bundle/home` 运行包内 `install.py`，不改动本机 `~/.config/capifin`。安装需要联网获取 `mcp` 等依赖，并包含 `list-tools` 自检。
+3. 核对 `capifin_mcp_client` 从解压包安装的 venv 导入：之后的子进程把该 venv 的 site-packages 放在 `PYTHONPATH` 最前，`capifund` 仍来自 CapiFund venv。
+4. 生成验收配置：服务地址取自包内 `mcp.json`，token 取自包内 `client.env`，样本沿用 `--config`。进程忽略环境变量中的 `CAPIFIN_MCP_TOKEN`。
+5. 依次运行 `run.py` 和 `agent_e2e.py`；后者通过 `--client-cli` 使用解压包安装的 `capifin-mcp` 下载文件。两项都通过才算通过，Codex 部分会消耗额度。
+6. 核对本次运行目录中没有出现 token。
+
 ## 输出
 
-每次运行在 `output_root` 下创建目录，`run.py` 为 `<时间戳>/`，`agent_e2e.py` 为 `<时间戳>-agent/`：
+每次运行在 `output_root` 下创建目录，`run.py` 为 `<时间戳>/`，`agent_e2e.py` 为 `<时间戳>-agent/`。`bundle_test.py` 为 `<时间戳>-bundle/`，其中保存 `install.log`、生成的 `config.yaml`，以及两项子验收各自的时间戳子目录：
 
 - `report.md`、`report.json`：逐项检查结果、耗时，以及每次调用的参数和结果。
 - `run.py`：`downloads/` 保存下载文件；`capifund/`、`capifund-server.log` 是测试用 CapiFund 的数据目录和服务日志。

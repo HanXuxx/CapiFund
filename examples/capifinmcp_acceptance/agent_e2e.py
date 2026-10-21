@@ -148,6 +148,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--codex-config", type=Path, default=DEFAULT_CODEX_CONFIG)
+    parser.add_argument("--client-cli", type=Path, default=Path(sys.executable).with_name("capifin-mcp"),
+                        help="Agent 下载文件使用的 capifin-mcp 可执行文件")
     args = parser.parse_args(argv)
     config, codex = load_config(args.config), load_config(args.codex_config)
     mcp = config["capifinmcp"]
@@ -172,7 +174,7 @@ def main(argv=None) -> int:
     client_config = agent_dir / "client.yaml"
     client_config.write_text(yaml.safe_dump({"url": mcp["url"], "token_env": "CAPIFIN_MCP_TOKEN",
                                              "timeout_seconds": mcp.get("timeout_seconds", 120)}), encoding="utf-8")
-    download_command = f"{Path(sys.executable).with_name('capifin-mcp')} --config {client_config} download-file"
+    download_command = f"{args.client_cli} --config {client_config} download-file"
     downloads = "\n".join(f"   - `{source}` → `downloads/{filename}`：{DOWNLOAD_HINTS[source]}"
                           for source, (filename, _) in DOWNLOAD_FILES.items())
     prompt = PROMPT.format(server=SERVER, tools="\n".join(f"- `{name}`" for name in targets), download_command=download_command,

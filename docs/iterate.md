@@ -18,5 +18,5 @@ record 协议版本采用 `major.minor` 形式，与整数形式的数据库版�
 
 当前完成的是阶段 0 和阶段 1：仓库骨架、record 协议 1.0、投研保留键、待办接口、HTTP/MCP 接入、只读网页和客户端。后续阶段开始前需要先确认范围：
 
-- 阶段 2，决策与模拟组合：从 `thesis` 的多空篮子和调仓回复投影出模拟持仓，由独立的 mark CLI 通过 `capifin_mcp_client` 读取后复权价格并估值。前置阶段在协议 `1.0` 下先通过普通回复的自由键 `custom.rebalance`（包含 `effective_date`、`benchmark`、`legs[{symbol, side, weight, mode}]`）试用调仓记录，待阶段 2 估值 CLI 启用时通过次版本协议升级登记为 `custom.kind="rebalance"` 保留键。
+- 阶段 2，决策与模拟组合：从 `thesis` 的多空篮子和调仓回复投影出模拟持仓，由独立的 mark CLI 通过 `capifin_mcp_client` 读取后复权价格并估值。前置阶段在协议 `1.0` 下先通过普通回复的自由键 `custom.rebalance`（包含 `effective_date`、`benchmark`、`legs[{symbol, side, weight}]`，A 股 `short` 腿的估值语义在阶段 2 确定）试用调仓记录，待阶段 2 估值 CLI 启用时通过次版本协议升级登记为 `custom.kind="rebalance"` 保留键。
 - 阶段 3，组织形式：根据实际使用情况，决定哪些自由 `custom` 键升级为保留键，以及是否需要多逻辑之间的组合视图。

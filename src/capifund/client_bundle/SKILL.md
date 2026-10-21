@@ -54,13 +54,13 @@ CapiFund 是投资逻辑及其验证过程的唯一权威存储。内容只保�
       "effective_date": "2026-10-21",
       "benchmark": "000300.SH",
       "legs": [
-        {"symbol": "688111.SH", "side": "long", "weight": 0.6, "mode": "cash"},
-        {"symbol": "300624.SZ", "side": "short", "weight": -0.4, "mode": "relative_benchmark"}
+        {"symbol": "688111.SH", "side": "long", "weight": 0.6},
+        {"symbol": "300624.SZ", "side": "short", "weight": 0.4}
       ]
     }
   }
   ```
-  其中 `side` 取 `"long"` 或 `"short"`，`weight` 为目标权重，`mode` 标明做多／做空语义（`"cash"` 现货多头、`"relative_benchmark"` 相对基准低配／看空、`"margin_short"` 真实融券／美股做空），`benchmark` 为规范指数代码（如 `000300.SH`、`000852.SH`、`SPX.US`）。阶段 2 组合估值 CLI 上线时，该结构将升级为保留键 `custom.kind="rebalance"`（含保留键 `legs`、`effective_date`、`benchmark`）。
+  其中 `side` 取 `"long"` 或 `"short"` 表示方向，`weight` 为该腿目标权重的绝对值（非负，方向只由 `side` 表达），`benchmark` 为规范指数代码（如 `000300.SH`、`000852.SH`）。A 股 `short` 腿按真实融券还是相对基准低配估值，留待阶段 2 确定，当前不记录该语义。阶段 2 组合估值 CLI 上线时，该结构将升级为保留键 `custom.kind="rebalance"`（含保留键 `legs`、`effective_date`、`benchmark`）。
 
 **三个“状态”字段的职责边界**：
 - `custom.thesis_status`（`draft` → `active` → `closed`）：**唯一**表示投资逻辑主帖（`type=thesis`）的业务生命周期。逻辑形成并登记至少一个 `pending` 验证节点后改为 `active`；关闭时必须给出 `close_reason`（`validated`、`falsified`、`expired`、`abandoned`）。关闭是终态；想重启时新建一条 `thesis` 并引用旧逻辑。`fund_agenda` 只看 `custom.thesis_status`。

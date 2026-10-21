@@ -1,6 +1,6 @@
 """通过端口验收 CapiFinMCP，并把取数结果作为证据写入测试用 CapiFund 实例。
 
-阶段 A 调用正在运行的 CapiFinMCP（认证、工具发现、各入口只读查询、文件下载）；
+阶段 A 调用正在运行的 CapiFinMCP：认证、工具发现、除 gts_api_* 外每个远程工具的只读调用、反向检查和文件下载；
 阶段 B 在空闲端口启动独立 CapiFund 子进程，经 HTTP 写入 thesis、checkpoint、evidence 并核对待办。
 """
 from __future__ import annotations
@@ -24,23 +24,23 @@ from capifund.client import FundClient
 
 SHANGHAI = timezone(timedelta(hours=8))
 DEFAULT_CONFIG = Path(__file__).with_name("config.yaml.example")
-# 远程入口必须公开的代表性工具，以及必须被正文读取替换掉的工具。
-REQUIRED_TOOLS = {
-    "gts_local_a_share_resolve", "gts_local_a_share_query", "gts_local_a_share_discover", "gts_local_a_share_snapshot",
-    "gts_local_us_stock_query", "gts_local_us_stock_snapshot", "gts_local_index_resolve", "gts_local_index_snapshot",
-    "gts_local_indicator", "gts_local_theme", "msci_cnelefmtr", "get_a_share_research_report_digests",
-    "tl_meeting_minutes_resolve", "tl_meeting_minutes_list", "download_source_file",
-}
-EXCLUDED_TOOLS = {
+# Gangtise 外部工具会消耗外部额度，验收和 Agent 测试都不调用。
+GTS_API_TOOLS = frozenset({"gts_api_agent", "gts_api_data", "gts_api_file", "gts_api_kb"})
+# HTTP 入口不得公开的工具：服务端正文读取、私有数据，以及已从 MCP 移除的公司研究提交、状态和取消。
+REMOVED_TOOLS = frozenset({
     "get_a_share_research_report_documents", "get_us_stock_research_report_documents",
     "gts_local_a_share_announcement_document", "gts_api_private", "tl_meeting_minutes_get", "tl_meeting_minutes_document",
-}
-PASS_STATUSES = {"success", "rows", "resolved", "available", "ready"}
+    "submit_company_research", "get_company_research_status", "cancel_company_research",
+})
 AUTHOR = {"id": "capifinmcp-acceptance", "type": "agent", "runtime": "capifund-example", "name": "CapiFinMCP 验收进程"}
 
 
 def log(message: str) -> None:
     print(f"[{datetime.now(SHANGHAI).strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def load_config(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def load_token(config: dict) -> str:
@@ -55,18 +55,17 @@ def load_token(config: dict) -> str:
 
 
 def outcome(result: dict) -> str:
-    """按 CapiFin 语义归类：只有 query_status=success 且 data_status=no_rows 才是成功无记录。"""
-    data, meta = result.get("data"), result.get("metadata", {})
-    data = data if isinstance(data, dict) else {}
-    query_status = meta.get("query_status") or data.get("query_status")
-    if query_status:
-        if query_status != "success":
-            return f"failed:{query_status}"
-        return "no_rows" if (meta.get("data_status") or data.get("data_status")) == "no_rows" else "rows"
-    status = data.get("status") or meta.get("status")
-    if status in PASS_STATUSES:
-        return "rows"
-    return "no_rows" if status == "no_rows" else f"failed:{status}"
+    """只有 query_status=success 且 data_status=no_rows 才是成功无记录。"""
+    meta = result.get("metadata", {})
+    if meta.get("query_status") != "success":
+        return f"failed:{meta.get('query_status')}"
+    return "no_rows" if meta.get("data_status") == "no_rows" else "rows"
+
+
+def new_run_dir(config: dict, suffix: str = "") -> Path:
+    run_dir = Path(config["output_root"]).expanduser() / (datetime.now(SHANGHAI).strftime("%Y%m%dT%H%M%S") + suffix)
+    run_dir.mkdir(parents=True)
+    return run_dir
 
 
 class Acceptance:
@@ -78,6 +77,8 @@ class Acceptance:
         self.checks: list[dict[str, Any]] = []
         self.results: dict[str, dict] = {}
         self.queries: dict[str, dict] = {}
+        self.visible: set[str] = set()
+        self.covered: set[str] = set()
 
     def check(self, phase: str, name: str, function: Callable[[], str]) -> bool:
         started = time.monotonic()
@@ -90,16 +91,23 @@ class Acceptance:
         log(f"{'PASS' if ok else 'FAIL'} {phase}/{name} ({elapsed}s): {detail}")
         return ok
 
-    def query(self, key: str, tool: str, arguments: dict) -> str:
+    def query(self, key: str, tool: str, arguments: dict, *, expect: str = "rows") -> str:
         result = self.client.call_tool(tool, arguments)
         state = outcome(result)
         self.results[key] = result
         self.queries[key] = {"tool": tool, "arguments": arguments, "summary": result["summary"], "outcome": state}
-        if state.startswith("failed"):
-            raise AssertionError(f"{tool} {state}; warnings={result['warnings'][:3]}")
-        if state == "no_rows":
-            raise AssertionError(f"{tool} returned no rows for a sample expected to have data")
-        return f"{tool}: {result['summary'][:120]}"
+        if state != expect:
+            raise AssertionError(f"{tool} returned {state}, expected {expect}; warnings={result['warnings'][:3]}")
+        self.covered.add(tool)
+        return f"{tool}: {state}"
+
+    def dataset_query(self, key: str, scope: str, dataset: str, **arguments) -> str:
+        """先 describe_dataset 取得 contract_token，再调用同一入口的 dataset_query。"""
+        self.query(f"{key}_describe", f"gts_local_{scope}_discover", {"operation": "describe_dataset", "dataset": dataset})
+        contract = self.results[f"{key}_describe"]["data"]["dataset"]
+        return self.query(key, f"gts_local_{scope}_dataset_query", {
+            "dataset": dataset, "contract_token": contract["contract_token"], "fields": contract["default_fields"][:5],
+            "limit": 3, **arguments})
 
     # 阶段 A：CapiFinMCP
 
@@ -119,92 +127,157 @@ class Acceptance:
         raise AssertionError("a wrong token was accepted")
 
     def tool_discovery(self) -> str:
-        names = {tool["name"] for tool in self.client.list_tools()}
-        missing, leaked = REQUIRED_TOOLS - names, EXCLUDED_TOOLS & names
-        if missing or leaked:
-            raise AssertionError(f"missing={sorted(missing)} leaked={sorted(leaked)}")
-        return f"{len(names)} tools; required present, body readers excluded"
+        self.visible = {tool["name"] for tool in self.client.list_tools()}
+        leaked = REMOVED_TOOLS & self.visible
+        if leaked or "download_source_file" not in self.visible:
+            raise AssertionError(f"leaked={sorted(leaked)} download_source_file={'download_source_file' in self.visible}")
+        return f"{len(self.visible)} tools; removed tools absent"
+
+    def removed_tools_rejected(self) -> str:
+        accepted = []
+        for tool in sorted(REMOVED_TOOLS):
+            try:
+                self.client.call_tool(tool, {})
+                accepted.append(tool)
+            except CapiFinClientError as exc:
+                if "Unregistered tool" not in str(exc):
+                    accepted.append(f"{tool}: {exc}")
+        if accepted:
+            raise AssertionError(f"not rejected as unregistered: {accepted}")
+        return f"{len(REMOVED_TOOLS)} removed tools raise CapiFinClientError"
+
+    def tool_coverage(self) -> str:
+        missing = self.visible - GTS_API_TOOLS - self.covered
+        if missing:
+            raise AssertionError(f"visible tools without a passing check: {sorted(missing)}")
+        return f"{len(self.covered)} tools covered; exempt: {sorted(GTS_API_TOOLS & self.visible)}"
 
     def phase_a(self) -> None:
-        samples = self.config["samples"]
-        ticker = samples["a_share"]
-        today = datetime.now(SHANGHAI).date()
+        s = self.config["samples"]
+        ticker, today = s["a_share"], datetime.now(SHANGHAI).date()
+        state: dict[str, Any] = {}
         self.check("A", "auth_missing_token", self.auth_missing_token)
         self.check("A", "auth_wrong_token", self.auth_wrong_token)
         self.check("A", "tool_discovery", self.tool_discovery)
+        self.check("A", "removed_tools_rejected", self.removed_tools_rejected)
 
-        def resolve_a_share():
-            detail = self.query("a_share_resolve", "gts_local_a_share_resolve", {"query": samples["a_share_name"], "limit": 3})
-            codes = {json.dumps(row, ensure_ascii=False) for row in self.results["a_share_resolve"]["data"]["rows"]}
-            if not any(ticker in code for code in codes):
-                raise AssertionError(f"{samples['a_share_name']} did not resolve to {ticker}")
+        def a_share_resolve():
+            detail = self.query("a_share_resolve", "gts_local_a_share_resolve", {"query": s["a_share_name"], "limit": 3})
+            if ticker not in json.dumps(self.results["a_share_resolve"]["data"]["rows"], ensure_ascii=False):
+                raise AssertionError(f"{s['a_share_name']} did not resolve to {ticker}")
             return detail
-        self.check("A", "a_share_resolve", resolve_a_share)
-        self.check("A", "a_share_snapshot", lambda: self.query(
-            "a_share_snapshot", "gts_local_a_share_snapshot", {"view_id": "company_core", "entity": ticker, "limit_per_section": 3}))
-        self.check("A", "a_share_discover", lambda: self.query(
-            "a_share_discover", "gts_local_a_share_discover", {"operation": "search_capabilities", "query": "公告", "limit": 5}))
-        self.check("A", "a_share_announcements", lambda: self.query(
-            "a_share_announcements", "gts_local_a_share_query",
-            {"capability_id": "event.disclosures_calendar_and_shareholder_meetings", "entity": ticker, "plan": "summary",
-             "date_from": (today - timedelta(days=365)).isoformat(), "limit": 5}))
-        self.check("A", "us_stock_snapshot", lambda: self.query(
-            "us_stock_snapshot", "gts_local_us_stock_snapshot",
-            {"view_id": "company_core", "entity": samples["us_stock"], "limit_per_section": 3}))
 
-        def index_profile():
-            self.query("index_resolve", "gts_local_index_resolve", {"query": samples["index_name"], "limit": 1})
-            index_code = self.results["index_resolve"]["data"]["rows"][0]["index_code"]
-            return self.query("index_snapshot", "gts_local_index_snapshot",
-                              {"view_id": "index_profile", "entity": index_code, "limit_per_section": 3})
-        self.check("A", "index_profile", index_profile)
+        def index_resolve():
+            detail = self.query("index_resolve", "gts_local_index_resolve", {"query": s["index_name"], "limit": 1})
+            state["index_id"] = self.results["index_resolve"]["data"]["rows"][0]["index_id"]
+            return f"{detail}; index_id={state['index_id']}"
 
         def indicator_series():
-            self.query("indicator_search", "gts_local_indicator", {"operation": "search", "query": samples["indicator_query"], "limit": 3})
+            self.query("indicator_search", "gts_local_indicator", {"operation": "search", "query": s["indicator_query"], "limit": 3})
             file_id = self.results["indicator_search"]["data"]["result"]["candidates"][0]["file_id"]
             return self.query("indicator_series", "gts_local_indicator",
                               {"operation": "get_series", "indicator_ids": [file_id], "limit_per_indicator": 12})
-        self.check("A", "indicator_series", indicator_series)
-        self.check("A", "theme_search", lambda: self.query(
-            "theme_search", "gts_local_theme", {"operation": "search", "query": samples["theme_query"], "limit": 3}))
-        self.check("A", "msci_discover", lambda: self.query("msci_discover", "msci_cnelefmtr", {"operation": "discover"}))
-        self.check("A", "research_digests", lambda: self.query(
-            "research_digests", "get_a_share_research_report_digests", {"symbol": ticker, "query_mode": "latest_n", "limit": 3}))
 
         def minutes():
-            self.query("minutes_resolve", "tl_meeting_minutes_resolve", {"query": samples["a_share_name"], "kind": "security", "limit": 3})
+            self.query("minutes_resolve", "tl_meeting_minutes_resolve", {"query": s["a_share_name"], "kind": "security", "limit": 3})
             candidate = self.results["minutes_resolve"]["data"]["candidates"][0]
             return self.query("minutes_list", "tl_meeting_minutes_list", {
                 "security": {"ticker_symbol": candidate["TICKER_SYMBOL"], "market_tag": candidate["MARKET_TAG"]}, "limit": 3})
-        self.check("A", "minutes_list", minutes)
-        self.downloads()
 
-    def download(self, source: str, document_ref: dict, filename: str) -> str:
+        def materials_read():
+            item = self.results["materials_list"]["data"]["materials"][0]
+            state["material"] = {"ticker": item["ticker"], "run_id": item["run_id"], "node_id": item["nodes"][0]}
+            return self.query("materials_read", "get_company_research_materials",
+                              {"action": "read", "ticker": item["ticker"], "node_id": item["nodes"][0]})
+
+        # 每项为（检查名，调用）；顺序遵循 resolve → discover → query
+        steps: list[tuple[str, Callable[[], str]]] = [
+            ("a_share_resolve", a_share_resolve),
+            ("a_share_resolve_unknown", lambda: self.query(
+                "a_share_resolve_unknown", "gts_local_a_share_resolve", {"query": s["unknown_name"]}, expect="no_rows")),
+            ("a_share_snapshot", lambda: self.query(
+                "a_share_snapshot", "gts_local_a_share_snapshot", {"view_id": "company_core", "entity": ticker, "limit_per_section": 3})),
+            ("a_share_discover", lambda: self.query(
+                "a_share_discover", "gts_local_a_share_discover", {"operation": "search_capabilities", "query": "公告", "limit": 5})),
+            ("a_share_announcements", lambda: self.query(
+                "a_share_announcements", "gts_local_a_share_query",
+                {"capability_id": "event.disclosures_calendar_and_shareholder_meetings", "entity": ticker, "plan": "summary",
+                 "date_from": (today - timedelta(days=365)).isoformat(), "limit": 5})),
+            ("a_share_dataset_query", lambda: self.dataset_query("a_share_dataset", "a_share", "ashareann_info", entity=ticker)),
+            ("a_share_stock_links", lambda: self.query(
+                "a_share_stock_links", "gts_local_a_share_indicator", {"operation": "get_stock_links", "entity": ticker, "limit": 3})),
+            ("us_stock_snapshot", lambda: self.query(
+                "us_stock_snapshot", "gts_local_us_stock_snapshot", {"view_id": "company_core", "entity": s["us_stock"], "limit_per_section": 3})),
+            ("us_stock_discover", lambda: self.query(
+                "us_stock_discover", "gts_local_us_stock_discover", {"operation": "list_capabilities", "limit": 50})),
+            ("us_stock_query", lambda: self.query(
+                "us_stock_query", "gts_local_us_stock_query", {"capability_id": "market.valuation_history", "entity": s["us_stock"], "limit": 3})),
+            ("us_stock_dataset_query", lambda: self.dataset_query("us_stock_dataset", "us_stock", "usstk_securityinfo", entity=s["us_stock"])),
+            ("index_resolve", index_resolve),
+            ("index_snapshot", lambda: self.query(
+                "index_snapshot", "gts_local_index_snapshot", {"view_id": "index_profile", "entity": state["index_id"], "limit_per_section": 3})),
+            ("index_discover", lambda: self.query("index_discover", "gts_local_index_discover", {"operation": "list_capabilities"})),
+            ("index_query", lambda: self.query(
+                "index_query", "gts_local_index_query", {"capability_id": "index.composition_and_exposure", "entity": state["index_id"], "limit": 3})),
+            ("index_dataset_query", lambda: self.dataset_query("index_dataset", "index", "index_info", entity=state["index_id"])),
+            ("indicator_series", indicator_series),
+            ("indicator_dataset_query", lambda: self.dataset_query("indicator_dataset", "indicator", "rate_rmbexchange")),
+            ("theme_search", lambda: self.query(
+                "theme_search", "gts_local_theme", {"operation": "search", "query": s["theme_query"], "limit": 3})),
+            ("msci_discover", lambda: self.query("msci_discover", "msci_cnelefmtr", {"operation": "discover"})),
+            ("msci_asset", lambda: self.query("msci_asset", "msci_cnelefmtr", {"operation": "asset", "securities": [ticker]})),
+            ("research_digests", lambda: self.query(
+                "research_digests", "get_a_share_research_report_digests", {"symbol": ticker, "query_mode": "latest_n", "limit": 3})),
+            ("domestic_reports", lambda: self.query(
+                "domestic_reports", "get_a_share_domestic_stock_research_reports", {"symbol": ticker, "limit": 2})),
+            ("us_research_digests", lambda: self.query(
+                "us_research_digests", "get_us_stock_research_report_digests", {"symbol": s["us_stock"], "limit": 2})),
+            ("document_search", lambda: self.query(
+                "document_search", "tl_document_search", {"document_type": "meeting_minutes", "keywords": [s["a_share_name"]], "limit": 3})),
+            ("minutes_list", minutes),
+            ("materials_list", lambda: self.query("materials_list", "get_company_research_materials", {"action": "list", "limit": 1})),
+            ("materials_read", materials_read),
+            ("materials_read_unresearched", lambda: self.query(
+                "materials_read_unresearched", "get_company_research_materials",
+                {"action": "read", "ticker": s["unresearched_ticker"], "node_id": "company_business_governance"}, expect="no_rows")),
+        ]
+        for name, function in steps:
+            self.check("A", name, function)
+        self.downloads(state)
+        self.check("A", "tool_coverage", self.tool_coverage)
+
+    def download(self, source: str, document_ref: dict, filename: str, kind: str) -> str:
         saved = self.client.download_file(source, document_ref, self.run_dir / "downloads" / filename)
-        if saved["size_bytes"] <= 0:
-            raise AssertionError(f"empty file: {saved['path']}")
+        content = Path(saved["path"]).read_bytes()
+        if kind == "pdf" and not content.startswith(b"%PDF-"):
+            raise AssertionError(f"{filename} is not a PDF")
+        if kind == "text" and not content.decode("utf-8").strip():
+            raise AssertionError(f"{filename} is empty")
+        self.covered.add("download_source_file")
         self.queries[f"download_{source}"] = {"tool": "download_source_file", "arguments": {"source": source, "document_ref": document_ref},
                                               "summary": f"{saved['size_bytes']} bytes {saved['media_type']}", "outcome": "rows"}
-        return f"{saved['size_bytes']} bytes {saved['media_type']} -> {Path(saved['path']).name}"
+        return f"{saved['size_bytes']} bytes {saved['media_type']} -> {filename}"
 
-    def downloads(self) -> None:
+    def downloads(self, state: dict) -> None:
         def report():
             reports = self.results["research_digests"]["data"]["reports"]
-            return self.download("tl_research_report", reports[0]["report_ref"], "research_report.pdf")
+            return self.download("tl_research_report", reports[0]["report_ref"], "research_report.pdf", "pdf")
 
         def announcement():
             sources = self.results["a_share_announcements"]["data"]["sources"]
             row = next(source for source in sources if source["dataset"] == "ashareann_info")["result"]["rows"][0]
             return self.download("gts_a_share_announcement",
-                                 {"record_id": row["id"], "ann_id": str(row["ann_id"]), "title": row["ann_title"]}, "announcement.pdf")
+                                 {"record_id": row["id"], "ann_id": str(row["ann_id"]), "title": row["ann_title"]}, "announcement.pdf", "pdf")
 
         def mom_id():
             return {"mom_id": str(self.results["minutes_list"]["data"]["items"][0]["mom_id"])}
 
         self.check("A", "download_research_report", report)
         self.check("A", "download_announcement", announcement)
-        self.check("A", "download_meeting_transcript", lambda: self.download("tl_meeting_transcript", mom_id(), "meeting_transcript.txt"))
-        self.check("A", "download_meeting_summary", lambda: self.download("tl_meeting_summary", mom_id(), "meeting_summary.txt"))
+        self.check("A", "download_meeting_transcript", lambda: self.download("tl_meeting_transcript", mom_id(), "meeting_transcript.txt", "text"))
+        self.check("A", "download_meeting_summary", lambda: self.download("tl_meeting_summary", mom_id(), "meeting_summary.txt", "text"))
+        self.check("A", "download_company_research", lambda: self.download(
+            "company_research", state["material"], "company_research.md", "text"))
 
     # 阶段 B：CapiFund
 
@@ -215,26 +288,36 @@ class Acceptance:
             port = probe.getsockname()[1]
         origin = f"http://127.0.0.1:{port}"
         common = ["--data-dir", str(data_dir), "--host", "127.0.0.1", "--port", str(port), "--public-origin", origin]
-        subprocess.run([sys.executable, "-m", "capifund.admin", *common, "migrate-database", "--apply"],
-                       check=True, capture_output=True, text=True)
         server_log = (self.run_dir / "capifund-server.log").open("w")
-        server = subprocess.Popen([sys.executable, "-m", "capifund.cli", *common], stdout=server_log, stderr=subprocess.STDOUT)
-        try:
+        server = None
+
+        def start():
+            nonlocal server
+            subprocess.run([sys.executable, "-m", "capifund.admin", *common, "migrate-database", "--apply"],
+                           check=True, capture_output=True, text=True)
+            server = subprocess.Popen([sys.executable, "-m", "capifund.cli", *common], stdout=server_log, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 30
             while True:
                 try:
                     if httpx.get(origin + "/healthz", timeout=2, trust_env=False).status_code == 200:
-                        break
+                        return f"{origin}, data dir {data_dir}"
                 except httpx.HTTPError:
                     pass
                 if server.poll() is not None or time.monotonic() > deadline:
                     raise RuntimeError(f"CapiFund did not start; see {server_log.name}")
                 time.sleep(0.2)
-            log(f"CapiFund started at {origin} with data dir {data_dir}")
-            self.fund_records(FundClient(origin, author=AUTHOR))
-        finally:
+
+        def stop():
             server.terminate()
             server.wait(10)
+            return f"exit code {server.returncode}"
+
+        try:
+            if self.check("B", "fund_start", start):
+                self.fund_records(FundClient(origin, author=AUTHOR))
+        finally:
+            if server is not None:
+                self.check("B", "fund_stop", stop)
             server_log.close()
 
     def fund_records(self, fund: FundClient) -> None:
@@ -286,33 +369,34 @@ class Acceptance:
             if not self.check("B", name, function):
                 break
 
-    def write_report(self) -> bool:
-        passed = all(check["ok"] for check in self.checks)
-        report = {"run": self.run_dir.name, "capifinmcp_url": self.url, "passed": passed, "checks": self.checks, "queries": self.queries}
-        (self.run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
-        lines = [f"# CapiFinMCP 验收报告 {self.run_dir.name}", "",
-                 f"结论：{'全部通过' if passed else '存在失败项'}（{sum(c['ok'] for c in self.checks)}/{len(self.checks)}）。服务地址 `{self.url}`。", "",
-                 "| 阶段 | 检查 | 结果 | 耗时（秒） | 说明 |", "| --- | --- | --- | --- | --- |"]
-        for check in self.checks:
-            detail = str(check["detail"]).replace("|", "\\|").replace("\n", " ")[:200]
-            lines.append(f"| {check['phase']} | `{check['name']}` | {'通过' if check['ok'] else '失败'} | {check['seconds']} | {detail} |")
-        lines += ["", "下载文件位于 `downloads/`，测试用 CapiFund 数据位于 `capifund/`，完整调用参数与摘要见 `report.json`。", ""]
-        (self.run_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
-        return passed
+
+def write_report(run_dir: Path, title: str, url: str, checks: list[dict], extra: dict, footer: str) -> bool:
+    passed = all(check["ok"] for check in checks)
+    report = {"run": run_dir.name, "capifinmcp_url": url, "passed": passed, "checks": checks, **extra}
+    (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
+    lines = [f"# {title} {run_dir.name}", "",
+             f"结论：{'全部通过' if passed else '存在失败项'}（{sum(c['ok'] for c in checks)}/{len(checks)}）。服务地址 `{url}`。", "",
+             "| 阶段 | 检查 | 结果 | 耗时（秒） | 说明 |", "| --- | --- | --- | --- | --- |"]
+    for check in checks:
+        detail = str(check["detail"]).replace("|", "\\|").replace("\n", " ")[:200]
+        lines.append(f"| {check['phase']} | `{check['name']}` | {'通过' if check['ok'] else '失败'} | {check['seconds']} | {detail} |")
+    lines += ["", footer, ""]
+    (run_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
+    return passed
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args(argv)
-    config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
-    run_dir = Path(config["output_root"]).expanduser() / datetime.now(SHANGHAI).strftime("%Y%m%dT%H%M%S")
-    run_dir.mkdir(parents=True)
+    config = load_config(args.config)
+    run_dir = new_run_dir(config)
     log(f"Run directory: {run_dir}")
     acceptance = Acceptance(config, run_dir)
     acceptance.phase_a()
-    acceptance.check("B", "fund_service", lambda: acceptance.phase_b() or "test CapiFund stopped")
-    passed = acceptance.write_report()
+    acceptance.phase_b()
+    passed = write_report(run_dir, "CapiFinMCP 验收报告", acceptance.url, acceptance.checks, {"queries": acceptance.queries},
+                          "下载文件位于 `downloads/`，测试用 CapiFund 数据位于 `capifund/`，完整调用参数与摘要见 `report.json`。")
     log(f"{'PASSED' if passed else 'FAILED'}; report: {run_dir / 'report.md'}")
     return 0 if passed else 1
 

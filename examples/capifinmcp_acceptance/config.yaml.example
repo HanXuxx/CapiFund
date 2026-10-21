@@ -11,5 +11,8 @@ samples:
   index_name: 沪深300
   indicator_query: CPI
   theme_query: 人工智能
+  # 反向检查样本：解析应返回成功无记录；公司研究材料应返回空正文。
+  unknown_name: 不存在的验收样本公司
+  unresearched_ticker: ZZZZ.US
 # 每次运行在其下创建 <时间戳>/，保存报告、下载文件和测试用 CapiFund 数据。
 output_root: /data1/capi_fin_agent/tests/capifinmcp-acceptance

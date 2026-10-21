@@ -8,7 +8,7 @@ CapiFund 是以投资逻辑为核心的中心化投研库。一条投资逻辑�
 | 部署与维护 | [运维](docs/operations.md) |
 | 演进协议与功能 | [迭代规则](docs/iterate.md) |
 | Agent 使用 | [工作手册](src/capifund/client_bundle/SKILL.md)、[协议 1.0](src/capifund/protocols/1.0.md) |
-| 验收 CapiFinMCP 联动 | [端口验收示例](examples/capifinmcp_acceptance/README.md) |
+| 验收 CapiFinMCP 联动 | [端口验收与 Codex Agent 端到端示例](examples/capifinmcp_acceptance/README.md) |
 
 ## 快速开始
 
@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 .venv/bin/capifund --data-dir /data1/capi_fin_agent/capifund
 ```
 
-服务默认监听 `127.0.0.1:8793`，各入口如下：
+服务默认监听 `127.0.0.1:8794`，各入口如下：
 
 - 只读网页：`/`
 - HTTP API：`/api/v1/`

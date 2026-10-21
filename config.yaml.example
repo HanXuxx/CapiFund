@@ -4,6 +4,6 @@ storage:
   data_dir: /data1/capi_fin_agent/capifund
 server:
   host: 127.0.0.1
-  port: 8793
+  port: 8794
   # 客户端访问本服务使用的地址；写入接入包，并用于 MCP 的 Origin 校验。
-  public_origin: http://127.0.0.1:8793
+  public_origin: http://127.0.0.1:8794

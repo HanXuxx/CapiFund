@@ -19,7 +19,7 @@ pytestmark = pytest.mark.anyio
 
 @pytest.fixture
 async def client(paths):
-    app = create_app(FundConfig(paths.data_dir, "127.0.0.1", 8793, "http://localhost"))
+    app = create_app(FundConfig(paths.data_dir, "127.0.0.1", 8794, "http://localhost"))
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as http:
             yield http

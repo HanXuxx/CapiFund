@@ -14,7 +14,7 @@ from .db.storage import StoragePaths
 
 DEFAULT_DATA_DIR = Path("/data1/capi_fin_agent/capifund")
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8793
+DEFAULT_PORT = 8794
 SCHEMA = {
     "storage": {"data_dir": str},
     "server": {"host": str, "port": int, "public_origin": str},

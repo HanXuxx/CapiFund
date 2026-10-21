@@ -1,0 +1,12 @@
+# Codex Agent 端到端测试配置：继承正式 Agent Pipeline 的 Codex 账号池。
+# 只读取账号注册表和额度快照，不修改账号，也不占用 Pipeline 容量槽。
+codex_bin: codex
+# 含 codex_accounts.json、codex_usage.json 和 settings.json 的 Monitor 状态目录。
+account_state_root: /data1/capi_fin_agent/monitor
+# 账号登录目录；CODEX_HOME = accounts_root/<account>。
+accounts_root: ~/.codex-accounts
+# 指定账号；填 null 时按 priority、id 选第一个可调度账号。
+account: niuh
+model: gpt-6.1-sol
+reasoning_effort: medium
+timeout_seconds: 1800

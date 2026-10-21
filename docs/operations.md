@@ -7,7 +7,7 @@
 | 字段 | 默认值 |
 |---|---|
 | `storage.data_dir` | `/data1/capi_fin_agent/capifund` |
-| `server.host` / `server.port` | `127.0.0.1` / `8793` |
+| `server.host` / `server.port` | `127.0.0.1` / `8794` |
 | `server.public_origin` | `http://<host>:<port>`，接入包与 MCP Origin 校验都使用它 |
 
 ## 初始化与迁移

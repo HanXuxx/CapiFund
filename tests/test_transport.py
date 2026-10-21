@@ -1,7 +1,7 @@
 """同一 ASGI 服务的 HTTP、官方 MCP 客户端与只读网页端到端验收。"""
 from __future__ import annotations
 
-import io
+import json
 import zipfile
 
 import anyio
@@ -10,19 +10,39 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from capifund.admin import main as admin_main
 from capifund.asgi import create_app
 from capifund.config import FundConfig
-from conftest import AGENT, OTHER
+from capifund.tokens import write_tokens
+from conftest import AGENT, OTHER, TOKEN
 
 pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-async def client(paths):
-    app = create_app(FundConfig(paths.data_dir, "127.0.0.1", 8794, "http://localhost"))
+async def client(paths, tokens_file):
+    app = create_app(FundConfig(paths.data_dir, "127.0.0.1", 8794, "http://localhost", tokens_file))
     async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as http:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost",
+                                     headers={"Authorization": "Bearer " + TOKEN}) as http:
             yield http
+
+
+async def test_http_and_mcp_require_registered_bearer_token(client, tokens_file):
+    for headers in ({"Authorization": ""}, {"Authorization": "Bearer wrong"}):
+        assert (await client.get("/api/v1/protocol", headers=headers)).status_code == 401
+        response = await client.post("/mcp", headers=headers, json={})
+        assert response.status_code == 401 and response.headers["www-authenticate"] == "Bearer"
+    assert (await client.get("/", headers={"Authorization": ""})).status_code == 200
+    assert (await client.get("/healthz", headers={"Authorization": ""})).status_code == 200
+    assert (await client.get("/api/v1/protocol")).status_code == 200
+    write_tokens(tokens_file, {})
+    assert (await client.get("/api/v1/protocol")).status_code == 401
+
+
+def test_service_refuses_to_start_without_token_registry(paths, tmp_path):
+    with pytest.raises(ValueError, match="tokens_file"):
+        create_app(FundConfig(paths.data_dir, "127.0.0.1", 8794, "http://localhost", tmp_path / "missing" / "tokens.json"))
 
 
 async def test_mcp_and_http_share_records_and_rules(client):
@@ -93,17 +113,35 @@ async def test_web_is_read_only_and_escapes_content(client):
     assert (await client.get("/static/fund.css")).status_code == 200
 
 
-async def test_bundle_and_health(client):
+async def test_health_and_removed_bundle_route(client):
     assert (await client.get("/healthz")).json() == {"status": "ok"}
-    response = await client.get("/client.zip")
-    names = set(zipfile.ZipFile(io.BytesIO(response.content)).namelist())
-    assert {"client.py", "SKILL.md", "README.md", "AGENTS.md", "protocol-1.0.md", "mcp.json", "connection.json",
-            "thesis.json.example"} <= names
-    readme = zipfile.ZipFile(io.BytesIO(response.content)).read("README.md").decode()
-    assert "http://localhost" in readme and "@@FUND_URL@@" not in readme
+    assert (await client.get("/client.zip")).status_code == 404
 
 
-async def test_client_py_talks_to_running_service(paths):
+def test_admin_tokens_and_client_bundle(tmp_path, capsys):
+    common = ["--data-dir", str(tmp_path / "data"), "--tokens-file", str(tmp_path / "tokens" / "tokens.json"),
+              "--public-origin", "http://192.168.0.115:8794"]
+    assert admin_main([*common, "token", "issue", "--name", "zip"]) == 0
+    assert admin_main([*common, "token", "list"]) == 0
+    assert admin_main([*common, "client-bundle", "--token-name", "missing", "--output-dir", str(tmp_path / "out")]) == 2
+    assert admin_main([*common, "client-bundle", "--token-name", "zip", "--output-dir", str(tmp_path / "out")]) == 0
+    token = json.loads((tmp_path / "tokens" / "tokens.json").read_text())["zip"]
+    assert token not in capsys.readouterr().out
+    archive = tmp_path / "out" / "capi_fund_mcp_client_1_0_0.zip"
+    assert archive.stat().st_mode & 0o777 == 0o600
+    with zipfile.ZipFile(archive) as bundle:
+        prefix = "capi_fund_mcp_client_1_0_0/"
+        assert {name.removeprefix(prefix) for name in bundle.namelist()} == {
+            "AGENTS.md", "README.md", "SKILL.md", "protocol-1.0.md", "client.py", "mcp.json", "client.env",
+            "thesis.json.example", "checkpoint.json.example", "evidence.json.example"}
+        assert json.loads(bundle.read(prefix + "mcp.json"))["mcpServers"]["capifund"] == {
+            "type": "http", "url": "http://192.168.0.115:8794/mcp", "headers": {"Authorization": "Bearer " + token}}
+        assert bundle.read(prefix + "client.env").decode() == f"CAPIFUND_URL=http://192.168.0.115:8794\nCAPIFUND_TOKEN={token}\n"
+        readme = bundle.read(prefix + "README.md").decode()
+        assert "http://192.168.0.115:8794" in readme and "@@FUND_URL@@" not in readme
+
+
+async def test_client_py_talks_to_running_service(paths, tokens_file):
     """client.py 使用标准库发起真实 HTTP 请求，这里在本地端口启动服务。"""
     import socket
     import threading
@@ -113,7 +151,7 @@ async def test_client_py_talks_to_running_service(paths):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    app = create_app(FundConfig(paths.data_dir, "127.0.0.1", port, f"http://127.0.0.1:{port}"))
+    app = create_app(FundConfig(paths.data_dir, "127.0.0.1", port, f"http://127.0.0.1:{port}", tokens_file))
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -121,7 +159,9 @@ async def test_client_py_talks_to_running_service(paths):
         with anyio.fail_after(10):
             while not server.started:
                 await anyio.sleep(0.05)
-        fund = FundClient(f"http://127.0.0.1:{port}", author=AGENT)
+        with pytest.raises(ValueError, match="HTTP 401"):
+            await anyio.to_thread.run_sync(FundClient(f"http://127.0.0.1:{port}", token="wrong").protocol)
+        fund = FundClient(f"http://127.0.0.1:{port}", token=TOKEN, author=AGENT)
         created = await anyio.to_thread.run_sync(lambda: fund.create({"type": "thesis", "title": "客户端"}, "正文", "client-1"))
         assert (await anyio.to_thread.run_sync(lambda: fund.read(created["metadata"]["id"]))) == created
         doctor = await anyio.to_thread.run_sync(lambda: fund.doctor(mcp=False))

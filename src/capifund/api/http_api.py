@@ -1,4 +1,4 @@
-"""HTTP 接入：请求体读取与 /api/v1 声明式路由；不做身份认证，作者由请求自报。"""
+"""HTTP 接入：请求体读取与 /api/v1 声明式路由；Bearer 校验在装配层完成，作者由请求自报。"""
 from __future__ import annotations
 
 import json
@@ -7,12 +7,10 @@ from typing import NamedTuple
 
 import anyio
 import anyio.to_thread
-from starlette.concurrency import run_in_threadpool
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse
 
 from ..errors import NotFound, RecordError
 from ..serialization import unique_mapping
-from .bundle import BUNDLE_NAME, bundle_bytes
 
 MAX_REQUEST = 4 * 1024 * 1024
 
@@ -85,8 +83,8 @@ def error_response(exc):
 class HttpAccess:
     """网页、HTTP 与 MCP 共用的请求体读取与业务调用。"""
 
-    def __init__(self, business, public_origin):
-        self.business, self.public_origin = business, public_origin
+    def __init__(self, business):
+        self.business = business
         # sqlite3 每条语句都释放并重取 GIL，多线程同时读写时吞吐成倍下降；
         # 数据操作因此共用一个执行槽，排队在事件循环中进行，不占工作线程。
         self.fund_slot = anyio.CapacityLimiter(1)
@@ -107,7 +105,7 @@ class HttpAccess:
 
 
 class HttpEndpoints:
-    """/api/v1 与接入包入口；只做解析与响应转换。"""
+    """/api/v1 与健康检查入口；只做解析与响应转换。"""
 
     def __init__(self, access):
         self.access = access
@@ -132,10 +130,6 @@ class HttpEndpoints:
             return JSONResponse(await access.call(route.operation, arguments), status_code=route.status)
         except (RecordError, ValueError) as exc:
             return error_response(exc)
-
-    async def bundle(self, request):
-        return Response(await run_in_threadpool(bundle_bytes, self.access.public_origin), media_type="application/zip",
-                        headers={"Content-Disposition": f'attachment; filename="{BUNDLE_NAME}"'})
 
     async def health(self, request):
         return JSONResponse({"status": "ok"})

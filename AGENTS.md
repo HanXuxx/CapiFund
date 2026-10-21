@@ -6,7 +6,8 @@
 
 - `src/capifund/domain/`：业务规则。`records.py` 管理修订、幂等和关系；`kinds.py` 定义投研保留键；`business.py` 是接入层唯一的调用入口。
 - `src/capifund/db/`：SQLite 存储、迁移、查询投影和离线维护。表结构以 `migrations/*.sql` 为准。
-- `src/capifund/api/`：HTTP 路由（`http_api.py`）、MCP 工具（`remote_mcp.py`）和接入包。`web/` 是只读网页。
+- `src/capifund/api/`：HTTP 路由（`http_api.py`）、MCP 工具（`remote_mcp.py`）、Bearer 认证（`auth.py`）和接入包。`web/` 是只读网页。token 登记文件的读写在 `src/capifund/tokens.py`。
+- `deploy/`：用户级 systemd unit 示例；`examples/mcp_acceptance/`：临时实例上的远程 MCP 与 Codex Agent 端到端验收。
 - `src/capifund/protocols/1.0.md` 是生效协议的规范原文；`client_bundle/SKILL.md` 是唯一的 Agent 工作手册，MCP prompt `capifund_workflow` 直接读取它。
 - `vendor/CapiFinMCP`：资料层 submodule。CapiFund 代码不导入其中的任何内容；Agent 在运行时同时连接这两个 MCP。
 

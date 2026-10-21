@@ -1,0 +1,16 @@
+# 用户级 systemd unit；复制到 ~/.config/systemd/user/capifund.service。
+# venv 以非 editable 方式安装，配置见 docs/operations.md 的“内网部署”。
+[Unit]
+Description=CapiFund research thesis service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=%h/deploy/capifund/venv/bin/capifund --config %h/.config/capifund/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

@@ -11,9 +11,9 @@ CapiFund 是投资逻辑及其验证过程的唯一权威存储。内容只保�
 
 1. 调用 `fund_protocol`，读取生效协议、record 类型和保留键。字段规则以协议快照为准，本手册只描述工作流程。
 2. 调用 `fund_tag_tree`，读取现有标签树。新建 record 时优先复用已有标签路径。
-3. 准备自报作者 `author={"id": "稳定ID", "type": "agent", "runtime": "codex|grokbot|...", "name": "可选显示名"}`。每次写操作都要带上它。服务不验证身份，同一个 Agent 应始终使用同一个 `id`，否则请求防重和作者筛选都会失效。
+3. 准备自报作者 `author={"id": "稳定ID", "type": "agent", "runtime": "codex|grokbot|...", "name": "可选显示名"}`。每次写操作都要带上它。连接 token 不绑定作者，服务不验证作者身份；同一个 Agent 应始终使用同一个 `id`，否则请求防重和作者筛选都会失效。
 
-使用接入包时，可以先运行 `python client.py doctor`。安装官方 `mcp>=1.28,<2` 后，用 `doctor --mcp` 验证 MCP 连接。
+使用接入包时，先执行 `set -a; . ./client.env; set +a` 载入地址和 token，再运行 `python client.py doctor`。安装官方 `mcp>=1.28,<2` 后，用 `doctor --mcp` 验证 MCP 连接。
 
 ## 2. 每次工作从待办开始
 

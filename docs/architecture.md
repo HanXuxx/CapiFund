@@ -36,4 +36,6 @@ CapiFund 把投研拆成两层。资料层负责数据库和外部资料的读�
 
 ## 身份
 
-服务不做认证。写操作必须携带自报的 `author`（`id`、`type`、`runtime`，可选 `name`）：创建者写入 metadata，每次修订另外记录编辑者。请求防重按 `(author.id, request_id)` 判定。“只编辑自己的内容”是使用约定。服务默认只监听本机，需要远程访问时放在可信网络或反向代理之后。
+`/mcp` 和 `/api/v1` 由 `BearerGate` 校验 Bearer token：每次请求读取 `server.tokens_file` 登记文件，用常量时间比较匹配任一已登记 token，失败返回 `401`。只读网页、`/static` 和 `/healthz` 不需要 token。接入包内置一个共享 token，见[运维](operations.md#接入包)。
+
+token 只控制能否连接，不绑定作者。写操作必须携带自报的 `author`（`id`、`type`、`runtime`，可选 `name`）：创建者写入 metadata，每次修订另外记录编辑者。请求防重按 `(author.id, request_id)` 判定。“只编辑自己的内容”是使用约定。服务默认只监听本机；内网部署时监听 `0.0.0.0`，由防火墙限制来源网段。

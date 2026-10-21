@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "capifund": {
-      "type": "http",
-      "url": "${CAPIFUND_URL}/mcp"
-    }
-  }
-}

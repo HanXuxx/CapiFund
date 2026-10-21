@@ -11,13 +11,14 @@ import yaml
 
 from .config_validation import ConfigError, validate_hostname, validate_origin
 from .db.storage import StoragePaths
+from .tokens import DEFAULT_TOKENS_FILE
 
 DEFAULT_DATA_DIR = Path("/data1/capi_fin_agent/capifund")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8794
 SCHEMA = {
     "storage": {"data_dir": str},
-    "server": {"host": str, "port": int, "public_origin": str},
+    "server": {"host": str, "port": int, "public_origin": str, "tokens_file": str},
 }
 
 
@@ -68,6 +69,7 @@ class FundConfig:
     host: str
     port: int
     public_origin: str
+    tokens_file: Path
 
     @property
     def storage(self) -> StoragePaths:
@@ -81,6 +83,7 @@ def add_config_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--host", help=f"Listen host (default: {DEFAULT_HOST})")
     parser.add_argument("--port", type=int, help=f"Listen port (default: {DEFAULT_PORT})")
     parser.add_argument("--public-origin", help="Origin that clients use to reach the service")
+    parser.add_argument("--tokens-file", type=Path, help=f"Bearer token registry for /mcp and /api/v1 (default: {DEFAULT_TOKENS_FILE})")
 
 
 def load_config(args: argparse.Namespace) -> FundConfig:
@@ -93,13 +96,14 @@ def load_config(args: argparse.Namespace) -> FundConfig:
             return cli
         if key in values.get(section, {}):
             value = values[section][key]
-            if key == "data_dir":
+            if key in {"data_dir", "tokens_file"}:
                 path = Path(value).expanduser()
                 return config_path.parent / path if not path.is_absolute() else path
             return value
         return default
 
     data_dir = Path(pick("data_dir", "storage", "data_dir", DEFAULT_DATA_DIR)).absolute()
+    tokens_file = Path(pick("tokens_file", "server", "tokens_file", DEFAULT_TOKENS_FILE)).expanduser().absolute()
     host = pick("host", "server", "host", DEFAULT_HOST)
     port = pick("port", "server", "port", DEFAULT_PORT)
     if type(port) is not int or not 0 <= port <= 65535:
@@ -112,4 +116,4 @@ def load_config(args: argparse.Namespace) -> FundConfig:
     validate_origin(origin)
     if data_dir.is_symlink() or (data_dir.exists() and not data_dir.is_dir()):
         raise ConfigError(f"storage.data_dir must be a directory, not a symlink: {data_dir}")
-    return FundConfig(data_dir, host, port, origin.rstrip("/"))
+    return FundConfig(data_dir, host, port, origin.rstrip("/"), tokens_file)

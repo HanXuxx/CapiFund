@@ -8,7 +8,7 @@ CapiFund 是以投资逻辑为核心的中心化投研库。一条投资逻辑�
 | 部署与维护 | [运维](docs/operations.md) |
 | 演进协议与功能 | [迭代规则](docs/iterate.md) |
 | Agent 使用 | [工作手册](src/capifund/client_bundle/SKILL.md)、[协议 1.0](src/capifund/protocols/1.0.md) |
-| 验收 CapiFinMCP 联动 | [端口验收与 Codex Agent 端到端示例](examples/capifinmcp_acceptance/README.md) |
+| 远程 MCP 端到端验收 | [临时实例、接入包与 Codex Agent 验收](examples/mcp_acceptance/README.md) |
 
 ## 快速开始
 
@@ -17,23 +17,25 @@ git submodule update --init
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
 .venv/bin/capifund-admin --data-dir /data1/capi_fin_agent/capifund migrate-database --apply
+.venv/bin/capifund-admin token issue --name local
 .venv/bin/capifund --data-dir /data1/capi_fin_agent/capifund
 ```
 
 服务默认监听 `127.0.0.1:8794`，各入口如下：
 
-- 只读网页：`/`
-- HTTP API：`/api/v1/`
-- MCP：`/mcp`
-- 接入包：`/client.zip`
+- 只读网页：`/`，不需要 token
+- HTTP API：`/api/v1/`，需要 Bearer token
+- MCP：`/mcp`，需要 Bearer token
 
-服务不做身份认证，写操作由客户端自报作者；请只在可信网络中暴露。
+token 登记在 `~/.config/capifund/tokens.json`（目录 `0700`、文件 `0600`），由 `capifund-admin token` 管理。token 不绑定作者，写操作由客户端自报作者；内置共享 token 的 Agent 接入包由 `capifund-admin client-bundle` 生成，见[运维](docs/operations.md)。
 
 ## 开发验证
 
 ```bash
 .venv/bin/python -m pytest -q
 ```
+
+CapiFinMCP 的真实数据验收位于 [vendor/CapiFinMCP/examples/acceptance](vendor/CapiFinMCP/examples/acceptance/README.md)。
 
 ## 来源
 

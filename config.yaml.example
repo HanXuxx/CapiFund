@@ -7,3 +7,5 @@ server:
   port: 8794
   # 客户端访问本服务使用的地址；写入接入包，并用于 MCP 的 Origin 校验。
   public_origin: http://127.0.0.1:8794
+  # Bearer token 登记文件（名称映射到 token），目录 0700、文件 0600；由 capifund-admin token 管理。
+  tokens_file: ~/.config/capifund/tokens.json

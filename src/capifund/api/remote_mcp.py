@@ -1,4 +1,4 @@
-"""官方 MCP SDK Streamable HTTP；无认证，写操作携带客户端自报的 author。"""
+"""官方 MCP SDK Streamable HTTP；连接需 Bearer token，写操作携带客户端自报的 author。"""
 from __future__ import annotations
 
 from importlib.resources import files
@@ -21,7 +21,7 @@ INSTRUCTIONS = """CapiFund 是以投资逻辑为核心的中心化投研库，�
 一个 type=thesis 主题就是一条投资逻辑；它的回复用 custom.kind 区分 checkpoint（验证节点）与 evidence（证据），楼层即时间线。
 工作流程：先调用 fund_protocol 读取协议和保留键、fund_tag_tree 读取标签树；用 fund_agenda 获取到期节点与待复核逻辑；
 写之前用 fund_query_records 查重，用 fund_read_topic 分页读取整条逻辑的时间线。
-写操作必须携带 author={"id","type":"human|agent","runtime"[,"name"]}，作者自报且不做认证，只编辑自己创建的内容。
+写操作必须携带 author={"id","type":"human|agent","runtime"[,"name"]}；连接 token 不绑定作者，作者自报，只编辑自己创建的内容。
 每次写操作生成新的 request_id，网络失败用相同 request_id 和相同内容重试；修改携带 expected_revision，
 冲突时重新读取、合并后用新 request_id 提交。更新时 custom 整体替换，保留键必须显式给出。
 行情、财务、公告等资料从 CapiFinMCP 读取，CapiFund 只保存研究判断及其引用。凭据和受限材料不得写入。

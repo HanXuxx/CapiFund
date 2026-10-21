@@ -1,4 +1,4 @@
-"""HTTP 操作仅依赖标准库的独立客户端；可选 MCP 诊断使用官方 SDK。作者身份来自环境变量自报。"""
+"""HTTP 操作仅依赖标准库的独立客户端；可选 MCP 诊断使用官方 SDK。地址和 Bearer token 来自 CAPIFUND_URL、CAPIFUND_TOKEN，作者身份来自环境变量自报。"""
 from __future__ import annotations
 import argparse
 import asyncio
@@ -30,18 +30,21 @@ def env_author():
 
 
 class FundClient:
-    def __init__(self, url=None, *, author=None, timeout=30):
+    def __init__(self, url=None, *, token=None, author=None, timeout=30):
         self.url = (url or os.environ.get("CAPIFUND_URL", "")).rstrip("/")
         parsed = urlsplit(self.url)
         if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path:
             raise ValueError("CAPIFUND_URL must be an http(s) origin without credentials")
+        self.token = token or os.environ.get("CAPIFUND_TOKEN", "")
+        if not self.token:
+            raise ValueError("CAPIFUND_TOKEN is required")
         self.author = author
         self.timeout = timeout
 
     def request(self, method, path, payload=None):
         if not path.startswith("/api/v1/") or ".." in path.split("?")[0].split("/"):
             raise ValueError("Only /api/v1/ is supported")
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", "Authorization": "Bearer " + self.token}
         body = None
         if payload is not None:
             headers["Content-Type"] = "application/json"
@@ -95,14 +98,6 @@ class FundClient:
             payload["body"] = body
         return self.request("PATCH", "/api/v1/records/" + quote(record_id, safe=""), payload)
 
-    def download_bundle(self):
-        """下载接入 ZIP，返回原始字节。"""
-        try:
-            with build_opener(NoRedirect()).open(Request(self.url + "/client.zip"), timeout=self.timeout) as response:
-                return response.read()
-        except HTTPError as exc:
-            raise ValueError(f"CapiFund HTTP {exc.code}") from None
-
     def doctor(self, *, mcp=False):
         """只读检查接入环境；仅 --mcp 需要官方 MCP SDK。"""
         if sys.version_info < (3, 11):
@@ -130,7 +125,8 @@ class FundClient:
         protocol = None
         read_timeout = None if self.timeout is None else timedelta(seconds=self.timeout)
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False,
+                                         headers={"Authorization": "Bearer " + self.token}) as client:
                 async with streamable_http_client(self.url + "/mcp", http_client=client) as (read, write, _):
                     async with ClientSession(read, write, read_timeout_seconds=read_timeout) as session:
                         await session.initialize()
@@ -151,7 +147,7 @@ class FundClient:
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="CapiFund record 1.0 client; CAPIFUND_URL and CAPIFUND_AUTHOR_* come from environment")
+    parser = argparse.ArgumentParser(description="CapiFund record 1.0 client; CAPIFUND_URL, CAPIFUND_TOKEN and CAPIFUND_AUTHOR_* come from environment")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("protocol")
     commands.add_parser("tag-tree")
@@ -183,8 +179,6 @@ def main(argv=None):
         command.add_argument("--request-id", required=True)
     commands.add_parser("doctor", help="只读检查 Python、环境与服务连接").add_argument(
         "--mcp", action="store_true", help="使用可选官方 MCP SDK 验证真实连接")
-    download = commands.add_parser("download-bundle", help="下载接入包，不覆盖已有文件")
-    download.add_argument("-o", "--output", type=Path, default=Path("capifund-client-1.0.zip"))
     args = vars(parser.parse_args(argv))
     operation = args.pop("command").replace("-", "_")
     try:
@@ -194,14 +188,7 @@ def main(argv=None):
             args["body"] = args["body"].read_text(encoding="utf-8")
         if operation == "query" and args.get("custom"):
             args["custom"] = json.loads(args["custom"])
-        if operation == "download_bundle":
-            output = args.pop("output")
-            data = FundClient().download_bundle()
-            with output.open("xb") as stream:
-                stream.write(data)
-            result = {"saved": str(output)}
-        else:
-            result = getattr(FundClient(), operation)(**args)
+        result = getattr(FundClient(), operation)(**args)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (ValueError, OSError, HTTPException) as exc:

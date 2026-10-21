@@ -1,0 +1,15 @@
+# CapiFinMCP 验收进程配置；字段均不含凭据，可直接使用或复制后修改。
+capifinmcp:
+  url: http://127.0.0.1:18766/mcp
+  # 单行 CAPIFIN_MCP_TOKEN=... 的私有文件；进程环境已有 CAPIFIN_MCP_TOKEN 时优先使用环境变量。
+  token_file: ~/.config/capifin/client.env
+  timeout_seconds: 120
+samples:
+  a_share_name: 贵州茅台
+  a_share: 600519.SH
+  us_stock: AAPL.US
+  index_name: 沪深300
+  indicator_query: CPI
+  theme_query: 人工智能
+# 每次运行在其下创建 <时间戳>/，保存报告、下载文件和测试用 CapiFund 数据。
+output_root: /data1/capi_fin_agent/tests/capifinmcp-acceptance

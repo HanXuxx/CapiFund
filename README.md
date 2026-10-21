@@ -8,6 +8,7 @@ CapiFund 是以投资逻辑为核心的中心化投研库。一条投资逻辑�
 | 部署与维护 | [运维](docs/operations.md) |
 | 演进协议与功能 | [迭代规则](docs/iterate.md) |
 | Agent 使用 | [工作手册](src/capifund/client_bundle/SKILL.md)、[协议 1.0](src/capifund/protocols/1.0.md) |
+| 验收 CapiFinMCP 联动 | [端口验收示例](examples/capifinmcp_acceptance/README.md) |
 
 ## 快速开始
 

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capifund"
+version = "0.1.0"
+description = "Investment thesis library with shared HTTP and MCP record service"
+requires-python = ">=3.12"
+dependencies = [
+  "PyYAML>=6.0,<7",
+  "mcp>=1.28,<2",
+  "pydantic>=2.11,<3",
+  "markdown-it-py>=3,<5",
+  "starlette>=0.40,<2",
+  "uvicorn>=0.31,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+capifund = "capifund.cli:main"
+capifund-admin = "capifund.admin:main"
+capifund-client = "capifund.client:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+capifund = [
+  "static/*.css",
+  "protocols/*",
+  "migrations/*.sql",
+  "client_bundle/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

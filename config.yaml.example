@@ -1,0 +1,9 @@
+# CapiFund 配置示例；复制为 config.yaml（已被 .gitignore 忽略）后按需修改。
+storage:
+  # 运行数据目录；相对路径以本文件所在目录为基准。真实研究数据只放在这里。
+  data_dir: /data1/capi_fin_agent/capifund
+server:
+  host: 127.0.0.1
+  port: 8793
+  # 客户端访问本服务使用的地址；写入接入包，并用于 MCP 的 Origin 校验。
+  public_origin: http://127.0.0.1:8793

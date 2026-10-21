@@ -1,0 +1,3 @@
+[submodule "vendor/CapiFinMCP"]
+	path = vendor/CapiFinMCP
+	url = git@github.com:HanXuxx/CapiFinMCP.git

@@ -10,6 +10,7 @@
 - `deploy/`：用户级 systemd unit 示例；`examples/mcp_acceptance/`：临时实例上的远程 MCP 与 Codex Agent 端到端验收。
 - `src/capifund/protocols/1.0.md` 是生效协议的规范原文；`client_bundle/SKILL.md` 是唯一的 Agent 工作手册，MCP prompt `capifund_workflow` 直接读取它。
 - `vendor/CapiFinMCP`：资料层 submodule。CapiFund 代码不导入其中的任何内容；Agent 在运行时同时连接这两个 MCP。
+- `vendor/deepseek-harness`：固定版本的 DSH submodule，与 `vendor/CapiFinMCP/vendor/deepseek-harness` 指向同一 commit。CapiFund 代码不使用它；公司研究的 DSH 执行器使用 CapiFinMCP 内的副本。
 
 ## 规则
 

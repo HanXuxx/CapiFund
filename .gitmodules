@@ -1,3 +1,6 @@
 [submodule "vendor/CapiFinMCP"]
 	path = vendor/CapiFinMCP
 	url = git@github.com:HanXuxx/CapiFinMCP.git
+[submodule "vendor/deepseek-harness"]
+	path = vendor/deepseek-harness
+	url = https://github.com/deepseek-ai/deepseek-harness.git

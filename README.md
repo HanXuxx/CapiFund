@@ -35,6 +35,8 @@ token 登记在 `~/.config/capifund/tokens.json`（目录 `0700`、文件 `0600`
 .venv/bin/python -m pytest -q
 ```
 
+`vendor/deepseek-harness` 是固定版本的 DSH submodule，与 CapiFinMCP 内的 DSH 副本指向同一 commit；CapiFund 代码不使用它，CapiFinMCP 公司研究的 DSH 执行器见[公司研究](vendor/CapiFinMCP/docs/company-research.md#dsh-执行器)。
+
 CapiFinMCP 的真实数据验收位于 [vendor/CapiFinMCP/examples/acceptance](vendor/CapiFinMCP/examples/acceptance/README.md)。
 
 ## 来源
